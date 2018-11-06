@@ -1,6 +1,8 @@
 import socketserver
 import sys
 import socket
+import threading
+
 
 class MyUDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
@@ -9,6 +11,8 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         socket = self.request[1]
         socket.sendto(data.upper(), self.client_address)
 
+
+# def find_poc():
 
 # Packet Structure
 # 0-5 Length
@@ -73,10 +77,15 @@ if __name__ == "__main__":
     # get source ip
     src_ip = socket.gethostbyname(socket.gethostname())
     # create socketserver
-    sock = socketserver.UDPServer((src_ip, int(source_port)), MyUDPHandler)
-    SOCK
+    # https://docs.python.org/3/library/socketserver.html
+    server = socketserver.UDPServer((src_ip, int(source_port)), MyUDPHandler)
+    server_thread = threading.Thread(target=server.serve_forever)
+    server_thread.daemon = False
+    server_thread.start()
 
+    # create a poc list that puts in all the nodes that it discovered
     poc_list = set()
+    # add itself to the poc_list
     poc_list.add((name, src_ip, source_port))
 
     packet_id = 0
@@ -97,7 +106,7 @@ if __name__ == "__main__":
         for node in recv_data:
             dest_port = node[2]
             dest_ip = node[1]
-            packet = Packet(1, poc_list, source_port, dest_port, source_port + str(packet_id))
+            packet = (1, poc_list, source_port, dest_port, source_port + str(packet_id))
             sock.sendto(packet, (dest_ip, int(dest_port)))
 
 
