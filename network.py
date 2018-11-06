@@ -3,16 +3,27 @@ import sys
 import socket
 import threading
 
+import time
+
 
 class MyUDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         # data is the packet to deliver
-        data = self.request[0].strip()
-        socket = self.request[1]
-        socket.sendto(data.upper(), self.client_address)
+        received_data = self.request[0].decode()
+        received_address = self.request[1]
+
+        global send_time_dict
+
+        pid = received_data[7:16]
+        if pid in send_time_dict.keys():
+            rtt = time.time() - send_time_dict[pid]
+        else:
+            
 
 
-# def find_poc():
+
+
+def find_poc():
 
 # Packet Structure
 # 0-5 Length
@@ -53,10 +64,7 @@ def create_packet(header, data, source_port, dest_port, id, rtt):
         length_str = "0" + length_str
 
     data_string = length_str + header + id + source_port + dest_port + rtt + data_string
-    arr = bytearray(length)
-    for i in range(length):
-        arr[i] = ord(data_string[i])
-    return arr
+    return data_string.encode()
 
 
 if __name__ == "__main__":
