@@ -2,6 +2,7 @@ import socketserver
 import sys
 import socket
 import threading
+import time
 
 
 class MyUDPHandler(socketserver.BaseRequestHandler):
@@ -20,9 +21,8 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
 # 7-16 Packet ID
 # 17-21 Source Port
 # 22-26 Destination Port
-# 27-31 RTT
-# 32-
-def create_packet(header, data, source_port, dest_port, id, rtt):
+# 27-  Data
+def create_packet(header, data, source_port, dest_port, id):
     # change data to string
     data_string = ""
     for (n, i, p) in data:
@@ -40,19 +40,14 @@ def create_packet(header, data, source_port, dest_port, id, rtt):
     while len(id) != 10:
         id = "0" + id
 
-    # pad rtt to be length 5
-    rtt = str(rtt)
-    while len(rtt) != 5:
-        rtt = "0" + rtt
-
-    length = len(data_string) + 1 + 10 + 5 + 5 + 5 + 5
+    length = len(data_string) + 1 + 10 + 5 + 5 + 5
 
     # pad length_str to be length 5
     length_str = str(length)
     while len(length_str) != 5:
         length_str = "0" + length_str
 
-    data_string = length_str + header + id + source_port + dest_port + rtt + data_string
+    data_string = length_str + header + id + source_port + dest_port  + data_string
     arr = bytearray(length)
     for i in range(length):
         arr[i] = ord(data_string[i])
@@ -62,6 +57,8 @@ def create_packet(header, data, source_port, dest_port, id, rtt):
 if __name__ == "__main__":
     # user_input is the parameters user passed in
     user_input = sys.argv
+
+    global  send_time_dict
 
     # N is number of total nodes
     # if the node does not have PoC, it has user_input length of 4 / else 6
@@ -88,13 +85,20 @@ if __name__ == "__main__":
     # add itself to the poc_list
     poc_list.add((name, src_ip, source_port))
 
-    packet_id = 0
+    # Create dictionary (packet_id --> send_time)
+    packet_id_inc = 0
+    packet_id = ""
+    send_time_dict = {}
 
     while len(poc_list) < N:
         if len(user_input) == 6:
             dest_port = user_input[4]
             dest_ip = user_input[3]
-            packet = create_packet("1", poc_list, source_port, dest_port, source_port + str(packet_id), 0)
+            if packet_id not in send_time_dict:
+                packet_id = source_port + str(packet_id_inc)
+                packet_id_inc += 1
+                send_time_dict[packet_id] = time.time()
+            packet = create_packet("1", poc_list, source_port, dest_port, packet_id)
             sock.sendto(packet, (dest_ip, int(dest_port)))
 
         recv_packet, address = sock.recvfrom(512000)
