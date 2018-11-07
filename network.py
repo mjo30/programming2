@@ -16,9 +16,8 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         global send_time_dict, rtt_table, src_port, name, poc_list, server
 
         # check if i sent this packet to calculate rtt
-        pid = received_data[7:16]
-        p_name = received_data[27:46]
-        p_id = received_data[7:16]
+        p_name = received_data[26:45]
+        p_id = received_data[6:15]
 
         # packet I sent is returned, so calculate rtt
         if p_id in send_time_dict.keys():
@@ -41,10 +40,10 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                     rtt_packet = create_packet("0", rtt_vector, src_port, poc[2], name, p_id)
                     server.socket.sendto(rtt_packet, (poc[1], int(poc[2])))
         else:
-            header = received_data[6]
+            header = received_data[5]
             # received rtt vector, update my rtt table
             if header == "0":
-                rtt_vector = received_data[47:]
+                rtt_vector = received_data[46:]
                 # decode rtt vector
                 rtt_list = rtt_vector.split("<")
                 for rtt_set in rtt_list:
@@ -61,7 +60,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
             elif header == "1":
                 # get the 'data' portion of the packet
                 received_data = str(received_data)
-                data_to_process = received_data[47:]
+                data_to_process = received_data[46:]
                 to_send = find_poc(data_to_process)
                 send_poc(to_send)
 
@@ -100,16 +99,17 @@ def send_poc(to_send):
                 packet = create_packet("1", poc_list, src_port, port, name, packet_id)
                 server.socket.sendto(packet, (ip, int(port)))
                 print("send packet: ", packet)
+        time.sleep(5)
     print("done!")
 
 # Packet Structure
-# 0-5 Length
-# 6 Header  if header is 0, rtt vector / if header is 1, poc
-# 7-16 Packet ID
-# 17-21 Source Port
-# 22-26 Destination Port
-# 27-46 Name
-# 47- Data
+# 0-4 Length
+# 5 Header  if header is 0, rtt vector / if header is 1, poc
+# 6-15 Packet ID
+# 16-20 Source Port
+# 21-25 Destination Port
+# 26-45 Name
+# 46- Data
 def create_packet(header, data, src_port, dest_port, n_name, id):
     # change data to string
     data_string = ""
