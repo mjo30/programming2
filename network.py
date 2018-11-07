@@ -169,8 +169,7 @@ if __name__ == "__main__":
 
     # get source ip
     src_ip = socket.gethostbyname(socket.gethostname())
-    # create socketserver
-    # https://docs.python.org/3/library/socketserver.html
+    # create socketserver (https://docs.python.org/3/library/socketserver.html)
     server = socketserver.UDPServer((src_ip, int(src_port)), MyUDPHandler)
     server_thread = threading.Thread(target=server.serve_forever)
     server_thread.daemon = False
