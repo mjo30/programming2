@@ -10,25 +10,27 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         # data is the packet to deliver
         received_data = self.request[0].decode()
-        dest_address = self.request[1]
+        src_address = self.request[1]
 
-        global send_time_dict
+        global send_time_dict, source_port, name, poc_list, server
 
-        # check if i sent this packet to calculate rtt
         pid = received_data[7:16]
+
+        # packet I sent is returned, so calculate rtt
         if pid in send_time_dict.keys():
             rtt = time.time() - send_time_dict[pid]
+            #send updated rtt table to every poc
             send_rtt_vector(rtt)
         else:
             header = received_data[6]
+            # received rtt vector, update my rtt table
             if header == "0":
-                # received rtt vector, update my rtt table with information provided
 
+
+            # got PoC packet, update PoC list
             elif header == "1":
-                # got PoC packet, update PoC list
                 dest_port = received_data[17:21]
                 dest_port.replace(" ", "")
-                global source_port, name, poc_list
                 packet = create_packet("1", poc_list, source_port, dest_port, name, packet_id)
                 server.socket.sendto(packet, (dest_address, int(dest_port)))
 
@@ -132,7 +134,7 @@ if __name__ == "__main__":
         for node in poc_list:
             node_name = node[0]
             # if
-            if node_name != name or node_name in poc_list[name]:
+            if node_name != name or node_name not in rtt_table[name]:
                 packet_id = source_port + str(packet_id_inc)
                 packet_id_inc += 1
                 send_time_dict[packet_id] = time.time()
