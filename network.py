@@ -14,6 +14,8 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
 
         global send_time_dict, rtt_table, src_port, name, poc_list, server
 
+        # check if i sent this packet to calculate rtt
+        pid = received_data[7:16]
         p_name = received_data[27:46]
         p_id = received_data[7:16]
 
@@ -54,10 +56,49 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
 
             # got PoC packet, update PoC list
             elif header == "1":
-                dest_port = received_data[17:21]
-                dest_port.replace(" ", "")
-                packet = create_packet("1", poc_list, src_port, dest_port, name, packet_id)
-                server.socket.sendto(packet, (dest_address, int(dest_port)))
+                # get the 'data' portion of the packet
+                received_data = str(received_data)
+                data_to_process = received_data[27:]
+                to_send = find_poc(data_to_process)
+                send_poc(to_send)
+
+
+def find_poc(data):
+    global poc_list
+    node = data.split("<")
+    new_poc_list = set()
+    for n in node:
+        # get rid of unnecessary characters
+        n = n.replace("<", "")
+        n = n.replace(">", "")
+        n = n.split(",")
+        # new_node will be (name, ip, port)
+        new_node = (n[0], n[1], n[2])
+        new_poc_list.add(new_node)
+    # get the difference between what I learned and what I knew
+    to_send = new_poc_list - poc_list
+    return to_send
+
+def send_poc(to_send):
+    global poc_list, src_port, name, packet_id_inc, send_time_dict, server
+    # add all new information that I got
+    poc_list.add(to_send)
+
+    # while I know all N nodes
+    while len(poc_list) < N:
+        # send to all the nodes I know
+        for (n_name, ip, port) in poc_list:
+            # Don't sent to myself!
+            if n_name != name:
+                # Create packet id
+                packet_id = source_port + str(packet_id_inc)
+                packet_id_inc += 1
+                send_time_dict[packet_id] = time.time()
+                packet = create_packet("1", poc_list, src_port, port, name, packet_id)
+                server.socket.sendto(packet, (ip, int(port)))
+
+
+def send_rtt_vector(rtt):
 
 # Packet Structure
 # 0-5 Length
@@ -71,8 +112,14 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
 def create_packet(header, data, src_port, dest_port, name, id):
     # change data to string
     data_string = ""
-    for (n, i, p) in data:
-        data_string = data_string + n + " " + i + " " + p + " "
+    if header == "0":
+
+    elif header == "1":
+        for (n, i, p) in data:
+            # format the data so that it would be easier when processing
+            # sample : <name,ip,port>
+            string_to_add = "<" + n + "," + i + "," + p + ">"
+            data_string = data_string + string_to_add
 
     # pad source_port to be length 5
     while len(src_port) != 5:
@@ -87,8 +134,8 @@ def create_packet(header, data, src_port, dest_port, name, id):
         id = "0" + id
 
     # pad name to be length 20
-    while len(name) != 20:
-        name = " " + name
+    while len(n_name) != 20:
+        n_name = " " + n_name
 
     length = len(data_string) + 1 + 10 + 5 + 5 + 5 + 20
 
@@ -99,7 +146,6 @@ def create_packet(header, data, src_port, dest_port, name, id):
 
     data_string = length_str + header + id + src_port + dest_port  + data_string
     return data_string.encode()
-
 
 
 if __name__ == "__main__":
@@ -148,17 +194,7 @@ if __name__ == "__main__":
         poc_list.add((0, dest_ip, dest_port))
 
     # PoC discovery phase
-    while len(poc_list) < N:
-        # iterate through every node in poc list
-        for node in poc_list:
-            node_name = node[0]
-            # if
-            if node_name != name or node_name not in rtt_table[name]:
-                packet_id = src_port + str(packet_id_inc)
-                packet_id_inc += 1
-                send_time_dict[packet_id] = time.time()
-                packet = create_packet("1", poc_list, src_port, dest_port, name, packet_id)
-                server.socket.sendto(packet, (dest_ip, int(dest_port)))
+    send_poc(poc_list)
 
         # for node in recv_data:
         #     dest_port = node[2]
