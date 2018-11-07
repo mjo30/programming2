@@ -10,17 +10,19 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         # data is the packet to deliver
         received_data = self.request[0].decode()
-        print("received data: ", received_data)
         src_address = self.request[1]
+        print("received data: ", received_data)
 
         global send_time_dict, rtt_table, src_port, name, poc_list, server
 
         # check if i sent this packet to calculate rtt
         p_name = received_data[26:45]
         p_id = received_data[6:15]
+        print("The packet that I got :", p_id)
 
         # packet I sent is returned, so calculate rtt
         if p_id in send_time_dict.keys():
+            print("################ Received the packet I sent ! #######################")
             rtt = time.time() - send_time_dict[p_id]
 
             #update rtt table
@@ -60,13 +62,17 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
             elif header == "1":
                 # get the 'data' portion of the packet
                 received_data = str(received_data)
-                data_to_process = received_data[46:]
-                to_send = find_poc(data_to_process)
+                # send the packet that has same packet_id if that packet has me as PoC
+                if len(poc_list) < N:
+                    packet = create_packet("1", poc_list, received_data[21:25], received_data[16:20],
+                                           name, received_data[6:15])
+                    src_address.sendto(packet, self.client_address)
+                to_send = find_poc(received_data)
                 send_poc(to_send)
-
 
 def find_poc(data):
     global poc_list, src_port, name
+    data = data[46:]
     print("data: ", data)
     node = data.split("<")
     node = node[1:]
@@ -79,10 +85,6 @@ def find_poc(data):
         print("node_n: ", node_n)
         n_name = node_n[0]
         # new_node will be (name, ip, port)
-        if n_name == "0":
-            poc_list = poc_list.discard((node_n[0], node_n[1], node_n[2]))
-            if poc_list is None:
-                poc_list = set()
         new_node = (n_name, node_n[1], node_n[2])
         new_poc_list.add(new_node)
     # get the difference between what I learned and what I knew
@@ -102,14 +104,15 @@ def send_poc(to_send):
             # Don't send to myself!
             if n_name != name:
                 # Create packet id
-                packet_id = src_port + str(packet_id_inc)
-                packet_id_inc += 1
+                packet_id = str(src_port) + str(packet_id_inc)
+                packet_id_inc = int(packet_id_inc) + 1
                 send_time_dict[packet_id] = time.time()
                 packet = create_packet("1", poc_list, src_port, port, name, packet_id)
                 server.socket.sendto(packet, (ip, int(port)))
                 print("send packet: ", packet)
             if ip == poc_dest_ip and port == poc_dest_port:
                 in_poc_list = True
+        # If my PoC is not in my list, send to my PoC
         if not in_poc_list and poc_dest_ip is not None and poc_dest_port is not None:
             packet_id = src_port + str(packet_id_inc)
             packet_id_inc += 1
