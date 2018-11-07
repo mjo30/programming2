@@ -44,6 +44,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
             # received rtt vector, update my rtt table
             if header == "0":
                 rtt_vector = received_data[47:]
+                # decode rtt vector
                 rtt_list = rtt_vector.split("<")
                 for rtt_set in rtt_list:
                     rtt_set = rtt_set.replace("<", "")
@@ -52,6 +53,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                     node1 = rtt_set[0].replace(" ", "")
                     node2 = rtt_set[1].replace(" ", "")
                     rtt = rtt_set[2]
+                    #update
                     rtt_table[node1][node2] = rtt
 
             # got PoC packet, update PoC list
@@ -192,13 +194,6 @@ if __name__ == "__main__":
 
     # PoC discovery phase
     send_poc(poc_list)
-
-        # for node in recv_data:
-        #     dest_port = node[2]
-        #     dest_ip = node[1]
-        #     packet = (1, poc_list, source_port, dest_port, source_port + str(packet_id))
-        #     sock.sendto(packet, (dest_ip, int(dest_port)))
-
 
 
 
