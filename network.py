@@ -67,28 +67,34 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
 
 def find_poc(data):
     global poc_list, src_port, name
+    print("data: ", data)
     node = data.split("<")
+    node = node[1:]
     new_poc_list = set()
     for n in node:
         # get rid of unnecessary characters
-        n = n.replace("<", "")
+        print("n: ", n)
         n = n.replace(">", "")
         node_n = n.split(",")
-        n_name = node_n
+        print("node_n: ", node_n)
+        n_name = node_n[0]
         # new_node will be (name, ip, port)
-        if n_name == "0" and node_n[2] == src_port:
-            poc_list = poc_list - (node_n[0], node_n[1], node_n[2])
-            n_name = name
+        if n_name == "0":
+            poc_list = poc_list.discard((node_n[0], node_n[1], node_n[2]))
+            if poc_list is None:
+                poc_list = set()
         new_node = (n_name, node_n[1], node_n[2])
         new_poc_list.add(new_node)
     # get the difference between what I learned and what I knew
     to_send = new_poc_list - poc_list
+    print("to_send: ", to_send)
     return to_send
 
 def send_poc(to_send):
-    global poc_list, src_port, name, packet_id_inc, send_time_dict, server
+    global poc_list, src_port, name, packet_id_inc, send_time_dict, server, rtt_table
     # add all new information that I got
     poc_list = poc_list.union(to_send)
+
 
     # while I know all N nodes
     while len(poc_list) < N:
@@ -104,6 +110,8 @@ def send_poc(to_send):
                 server.socket.sendto(packet, (ip, int(port)))
                 print("send packet: ", packet)
         time.sleep(5)
+    print("poc List: ", poc_list)
+    print("rtt_table: ", rtt_table)
     print("done!")
 
 # Packet Structure
@@ -149,7 +157,7 @@ def create_packet(header, data, src_port, dest_port, n_name, id):
     while len(length_str) != 5:
         length_str = "0" + length_str
 
-    data_string = length_str + header + id + src_port + dest_port + data_string
+    data_string = length_str + header + id + src_port + dest_port + n_name + data_string
     return data_string.encode()
 
 
@@ -185,6 +193,7 @@ if __name__ == "__main__":
     poc_list = set()
     # add itself to the poc_list
     poc_list.add((name, src_ip, src_port))
+    print("original poc_list: ", poc_list)
 
     # Create dictionary (packet_id --> send_time)
     packet_id_inc = 0
