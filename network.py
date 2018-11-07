@@ -58,7 +58,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
             elif header == "1":
                 # get the 'data' portion of the packet
                 received_data = str(received_data)
-                data_to_process = received_data[27:]
+                data_to_process = received_data[47:]
                 to_send = find_poc(data_to_process)
                 send_poc(to_send)
 
@@ -97,9 +97,6 @@ def send_poc(to_send):
                 packet = create_packet("1", poc_list, src_port, port, name, packet_id)
                 server.socket.sendto(packet, (ip, int(port)))
 
-
-def send_rtt_vector(rtt):
-
 # Packet Structure
 # 0-5 Length
 # 6 Header
@@ -113,7 +110,7 @@ def create_packet(header, data, src_port, dest_port, name, id):
     # change data to string
     data_string = ""
     if header == "0":
-
+        data_string = data
     elif header == "1":
         for (n, i, p) in data:
             # format the data so that it would be easier when processing
