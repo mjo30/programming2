@@ -108,7 +108,7 @@ def send_poc(to_send):
 # 22-26 Destination Port
 # 27-46 Name
 # 47- Data
-def create_packet(header, data, src_port, dest_port, name, id):
+def create_packet(header, data, src_port, dest_port, n_name, id):
     # change data to string
     data_string = ""
     if header == "0":
@@ -143,7 +143,7 @@ def create_packet(header, data, src_port, dest_port, name, id):
     while len(length_str) != 5:
         length_str = "0" + length_str
 
-    data_string = length_str + header + id + src_port + dest_port  + data_string
+    data_string = length_str + header + id + src_port + dest_port + data_string
     return data_string.encode()
 
 
