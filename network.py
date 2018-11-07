@@ -91,11 +91,11 @@ def find_poc(data):
     return to_send
 
 def send_poc(to_send):
-    global poc_list, src_port, name, packet_id_inc, send_time_dict, server, rtt_table, dest_port, dest_ip
+    global poc_list, src_port, name, packet_id_inc, send_time_dict, server, rtt_table, poc_dest_port, poc_dest_ip
     # add all new information that I got
     poc_list = poc_list.union(to_send)
     # while I know all N nodes
-    while len(poc_list) < N:
+    while len(poc_list) <= N:
         # send to all the nodes I know
         in_poc_list = False
         for (n_name, ip, port) in poc_list:
@@ -108,15 +108,17 @@ def send_poc(to_send):
                 packet = create_packet("1", poc_list, src_port, port, name, packet_id)
                 server.socket.sendto(packet, (ip, int(port)))
                 print("send packet: ", packet)
-            if ip == dest_ip and port == dest_port:
+            if ip == poc_dest_ip and port == poc_dest_port:
                 in_poc_list = True
-        if not in_poc_list:
+        if not in_poc_list and poc_dest_ip is not None and poc_dest_port is not None:
             packet_id = src_port + str(packet_id_inc)
             packet_id_inc += 1
             send_time_dict[packet_id] = time.time()
-            packet = create_packet("1", poc_list, src_port, dest_port, name, packet_id)
-            server.socket.sendto(packet, (dest_ip, int(dest_port)))
+            packet = create_packet("1", poc_list, src_port, poc_dest_port, name, packet_id)
+            server.socket.sendto(packet, (poc_dest_ip, int(poc_dest_port)))
             print("send packet: ", packet)
+        if len(poc_list) == N:
+            break
         time.sleep(5)
     print("poc List: ", poc_list)
     print("rtt_table: ", rtt_table)
@@ -172,7 +174,7 @@ def create_packet(header, data, src_port, dest_port, n_name, id):
 if __name__ == "__main__":
     # user_input is the parameters user passed in
     user_input = sys.argv
-    global send_time_dict, poc_list, rtt_table, server, name, src_port, dest_port, dest_ip
+    global send_time_dict, poc_list, rtt_table, server, name, src_port, poc_dest_port, poc_dest_ip
 
     # N is number of total nodes
     # if the node does not have PoC, it has user_input length of 4 / else 6
@@ -208,17 +210,16 @@ if __name__ == "__main__":
     packet_id = ""
     send_time_dict = {}
 
-    dest_port = None
-    dest_ip = None
+    poc_dest_port = None
+    poc_dest_ip = None
 
     # add what you have for poc with name as 0 because you do not know the name yet
     if len(user_input) == 6:
-        dest_port = user_input[4]
-        dest_ip = user_input[3]
-        poc_list.add(("0", dest_ip, dest_port))
+        poc_dest_port = user_input[4]
+        poc_dest_ip = user_input[3]
 
-    # PoC discovery phase
-    send_poc(poc_list)
+        # PoC discovery phase
+        send_poc(poc_list)
 
 
 
