@@ -66,16 +66,20 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
 
 
 def find_poc(data):
-    global poc_list
+    global poc_list, src_port, name
     node = data.split("<")
     new_poc_list = set()
     for n in node:
         # get rid of unnecessary characters
         n = n.replace("<", "")
         n = n.replace(">", "")
-        n = n.split(",")
+        node_n = n.split(",")
+        n_name = node_n
         # new_node will be (name, ip, port)
-        new_node = (n[0], n[1], n[2])
+        if n_name == "0" and node_n[2] == src_port:
+            poc_list = poc_list - (node_n[0], node_n[1], node_n[2])
+            n_name = name
+        new_node = (n_name, node_n[1], node_n[2])
         new_poc_list.add(new_node)
     # get the difference between what I learned and what I knew
     to_send = new_poc_list - poc_list
@@ -90,7 +94,7 @@ def send_poc(to_send):
     while len(poc_list) < N:
         # send to all the nodes I know
         for (n_name, ip, port) in poc_list:
-            # Don't sent to myself!
+            # Don't send to myself!
             if n_name != name:
                 # Create packet id
                 packet_id = src_port + str(packet_id_inc)
@@ -191,7 +195,7 @@ if __name__ == "__main__":
     if len(user_input) == 6:
         dest_port = user_input[4]
         dest_ip = user_input[3]
-        poc_list.add((0, dest_ip, dest_port))
+        poc_list.add(("0", dest_ip, dest_port))
 
     # PoC discovery phase
     send_poc(poc_list)
