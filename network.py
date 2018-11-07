@@ -91,7 +91,7 @@ def send_poc(to_send):
             # Don't sent to myself!
             if n_name != name:
                 # Create packet id
-                packet_id = source_port + str(packet_id_inc)
+                packet_id = src_port + str(packet_id_inc)
                 packet_id_inc += 1
                 send_time_dict[packet_id] = time.time()
                 packet = create_packet("1", poc_list, src_port, port, name, packet_id)
