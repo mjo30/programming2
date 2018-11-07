@@ -10,6 +10,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
     def handle(self):
         # data is the packet to deliver
         received_data = self.request[0].decode()
+        print("received data: ", received_data)
         src_address = self.request[1]
 
         global send_time_dict, rtt_table, src_port, name, poc_list, server
@@ -84,7 +85,7 @@ def find_poc(data):
 def send_poc(to_send):
     global poc_list, src_port, name, packet_id_inc, send_time_dict, server
     # add all new information that I got
-    poc_list.add(to_send)
+    poc_list = poc_list.union(to_send)
 
     # while I know all N nodes
     while len(poc_list) < N:
@@ -98,11 +99,12 @@ def send_poc(to_send):
                 send_time_dict[packet_id] = time.time()
                 packet = create_packet("1", poc_list, src_port, port, name, packet_id)
                 server.socket.sendto(packet, (ip, int(port)))
+                print("send packet: ", packet)
+    print("done!")
 
 # Packet Structure
 # 0-5 Length
-# 6 Header
-# if header is 0, rtt vector / if header is 1, poc
+# 6 Header  if header is 0, rtt vector / if header is 1, poc
 # 7-16 Packet ID
 # 17-21 Source Port
 # 22-26 Destination Port
@@ -117,7 +119,7 @@ def create_packet(header, data, src_port, dest_port, n_name, id):
         for (n, i, p) in data:
             # format the data so that it would be easier when processing
             # sample : <name,ip,port>
-            string_to_add = "<" + n + "," + i + "," + p + ">"
+            string_to_add = "<" + str(n) + "," + str(i) + "," + str(p) + ">"
             data_string = data_string + string_to_add
 
     # pad source_port to be length 5
