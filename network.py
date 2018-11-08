@@ -238,7 +238,6 @@ if __name__ == "__main__":
     if len(user_input) == 6:
         poc_dest_port = user_input[4]
         poc_dest_ip = user_input[3]
-
         # PoC discovery phase
         send_poc(poc_list)
 
