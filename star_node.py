@@ -12,6 +12,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         recv_from = self.request[1]  # recv_from is the socket that I got data from
 
         header = recv_data[0]
+        print(recv_data)
 
         #poc packet is received
         if header == "0":
@@ -20,25 +21,22 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
 
         #rtt_check_packet is received
         elif header == "1":
-            rtt_check_receive(recv_data)
+            rtt_check_receive(self, recv_data, recv_from)
 
         #rtt_table_packet is received
         elif header == "2":
+            print("RTT Received ", recv_data)
             rtt_table_receive(recv_data)
 
 # 0 Header("0")
-# 1-20 Name
-# 22- PoC List
-def create_poc_packet(name, data):
+# 1- PoC List
+def create_poc_packet(data):
     # pad name with whitespace
-    while len(name) != 20:
-        name = " " + name
-
     poc_list_to_string = ""
     for node_name, node_value in data.items():
         poc_list_to_string += "@" + str(node_name) + "," + str(node_value[0]) + "," + str(node_value[1])
 
-    packet = "0" + name + poc_list_to_string
+    packet = "0" + poc_list_to_string
     return packet.encode()
 
 # 0 Header("1")
@@ -65,7 +63,7 @@ def peer_discover():
     while len(poc_list) < N:
         # try sending to my PoC if I did not get response from my poc yet
         if my_poc_address is not None and my_poc_address is not None:
-            packet = create_poc_packet(my_name, poc_list)
+            packet = create_poc_packet(poc_list)
             server.socket.sendto(packet, (my_poc_address, int(my_poc_port)))
         time.sleep(5)
     print("Peer discovery done!")
@@ -100,29 +98,29 @@ def compute_rtt():
             sent_packets[packet_id] = time.time()
 
 def update_from_poc_data(packet):
-    global poc_list, my_poc_address, my_poc_port, my_name, peer_discovery_done
-    poc_string = packet[21:]
+    global poc_list, my_poc_address, my_poc_port, my_name, peer_discovery_done, server
+    poc_string = packet[1:]
     individual_node = poc_string.split("@")
     individual_node = list(filter(None, individual_node))
     for i_n in individual_node:
         name, address, port = i_n.split(",")
         if name not in poc_list.keys():
-            poc_list[name] = (address, port)
+            poc_list[name] = (address, int(port))
 
     # my poc is updated, so tell everyone!
     for node_name, node_value in poc_list.items():
         if node_name != my_name:
             dest_address, dest_port = node_value
-            packet = create_poc_packet(my_name, poc_list)
+            packet = create_poc_packet(poc_list)
             server.socket.sendto(packet, (dest_address, int(dest_port)))
     if len(poc_list) == N:
         peer_discovery_done = True
 
 
-def rtt_check_receive(rtt_check_packet):
+def rtt_check_receive(self, rtt_check_packet, rtt_socket):
     global my_name, my_port, sent_packets, poc_list, rtt_table, my_address
     packet_id = rtt_check_packet[1:11]
-    src_address = rtt_check_packet[11:36]
+    src_address = rtt_check_packet[11:36].replace(" ", "")
     src_port = rtt_check_packet[36:41]
     print("packet: ", rtt_check_packet)
     print("packetid: ", packet_id)
@@ -130,13 +128,16 @@ def rtt_check_receive(rtt_check_packet):
     print("src_port: ", src_port)
 
     #packet returned! calculate rtt
+    print("Sent packets: ", sent_packets)
     if packet_id in sent_packets.keys():
+        print("Received the packet I sent! '0'")
         rtt = time.time() - sent_packets[packet_id]
 
         #update rtt table
         node1 = my_name
         node2 = [k for k,v in poc_list.items() if v == (src_address, int(src_port))]
-        rtt_key = tuple(sorted([node1, node2]))
+        print(node2)
+        rtt_key = tuple(sorted([node1, node2[0]]))
         rtt_table[rtt_key] = rtt
 
         #let everyone know that rtt table is updated!
@@ -145,16 +146,18 @@ def rtt_check_receive(rtt_check_packet):
     else: #someone sent rtt_check_packet! send it back right away.
         src_address = my_address.rjust(25)
         rtt_check_packet = create_check_packet(packet_id, src_address, str(my_port))
-        server.socket.sendto(rtt_check_packet, (src_address, int(src_port)))
+        rtt_socket.sendto(rtt_check_packet, self.client_address)
+        time.sleep(10)
 
 # send my rtt_table to everyone in poc_list
 def rtt_table_send(rtt_table):
-    global poc_list
+    global poc_list, server
     rtt_table_packet = create_table_packet(rtt_table)
     for name, value in poc_list.items():
         if name != my_name: #except me
             dest_ip, dest_port = value
-            server.socket.sendto(rtt_table_packet, (dest_ip, dest_port))
+            print("Send this packet: ", rtt_table_packet)
+            server.socket.sendto(rtt_table_packet, (dest_ip, int(dest_port)))
 
 # some node sent rtt_table, so update my rtt table
 def rtt_table_receive(rtt_table_packet):
@@ -172,6 +175,7 @@ def rtt_table_receive(rtt_table_packet):
     #combine rtt_tables
     new_rtt_table = {**rtt_table, **received_rtt_table}
     rtt_table = new_rtt_table
+    print("RRRRRRRR ", rtt_table)
 
 if __name__ == "__main__":
     # set variables to input so that it can be accessed throughout the file
@@ -220,6 +224,10 @@ if __name__ == "__main__":
     time.sleep(3)
     print("rtt_table: ", rtt_table)
     print("done!")
+
+    server.server_close()
+    server.shutdown()
+    sys.exit(0)
 
 
 
