@@ -28,18 +28,25 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                     past_time = sent_packets[recv_data[11:]]
                     rtt_vector[name] = time.time() - past_time
             else:
+                # if i did not send this packet, send it back without doing anything
                 recv_from.sendto(recv_data.encode(), self.client_address)
 
+        # if i received rtt matrix, update
         elif header == "2":
             if len(rtt_matrix.keys()) < N:
                 update_rtt_matrix(recv_data)
 
+
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
     global rtt_matrix, poc_list, my_name
+    # get initial length of rtt matrix
     init_len = len(rtt_matrix.keys())
+    # get everything without header
     matrix_string = data[1:]
+    # split rtt_vector
     individual_node = matrix_string.split("&")
+    # get rid of [""]
     individual_node = individual_node[1:]
     for i_n in individual_node:
         individual_feature = i_n.split("@")
@@ -67,24 +74,6 @@ def create_poc_packet(data):
     return packet.encode()
 
 
-# # 0 Header("1")
-# # 1-10 PacketID
-# # 11-35 Source ip
-# # 36-40 Source Port
-# def create_check_packet(packet_id, src_ip, src_port):
-#     header = "1"
-#     packet_string = header + packet_id + src_ip + src_port
-#     return packet_string.encode()
-
-# # 0 Header("2")
-# # 1- RTT Table
-# def create_table_packet(rtt_table):
-#     header = "2"
-#     rtt_table_string = ""
-#     for k,v in rtt_table.items():
-#         rtt_table_string += "@" + k[0] + "," + k[1] + "," + str(v)
-#     packet_string = header + rtt_table_string
-#     return packet_string.encode()
 def peer_discover():
     global my_poc_address, my_poc_port, poc_list, N, my_name, server
     while len(poc_list) < N:
@@ -153,6 +142,7 @@ def update_from_poc_data(packet):
         peer_discovery_done = True
 
 
+# send my rtt matrix to my PoC if rtt_matrix is not complete
 def compute_global_rtt():
     global rtt_matrix, poc_list, my_name, server, rtt_vector
     if len(rtt_vector.keys()) == N - 1:
