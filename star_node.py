@@ -12,21 +12,48 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         recv_from = self.request[1]  # recv_from is the socket that I got data from
 
         header = recv_data[0]
-        print(recv_data)
-
+        global rtt_matrix, sent_packets, rtt_vector
         #poc packet is received
         if header == "0":
             if not peer_discovery_done:
                 update_from_poc_data(recv_data)
 
-        #rtt_check_packet is received
         elif header == "1":
-            rtt_check_receive(self, recv_data, recv_from)
+            # if packet id is in sent_packets
+            if recv_data[11:] in sent_packets.keys():
+                name = recv_data[1:11].replace(" ", "")
+                # if I do not have rtt information about this node
+                if name not in rtt_vector.keys():
+                    # calculate the rtt and put it in
+                    past_time = sent_packets[recv_data[11:]]
+                    rtt_vector[name] = time.time() - past_time
+            else:
+                recv_from.sendto(recv_data.encode(), self.client_address)
 
-        #rtt_table_packet is received
         elif header == "2":
-            print("RTT Received ", recv_data)
-            rtt_table_receive(recv_data)
+            if len(rtt_matrix.keys()) < N:
+                update_rtt_matrix(recv_data)
+
+# update rtt matrix from data that I received
+def update_rtt_matrix(data):
+    global rtt_matrix, poc_list, my_name
+    init_len = len(rtt_matrix.keys())
+    matrix_string = data[1:]
+    individual_node = matrix_string.split("&")
+    individual_node = individual_node[1:]
+    for i_n in individual_node:
+        individual_feature = i_n.split("@")
+        if individual_feature[0] not in rtt_matrix.keys():
+            rtt_matrix[individual_feature[0]] = "@" + individual_feature[1]
+
+    len_after_update = len(rtt_matrix.keys())
+
+    # if length before update and length after update is different, it means that matrix
+    # has been updated! send new information to all poc
+    if len_after_update != init_len:
+        for key, value in poc_list.items():
+            if key != my_name:
+                compute_global_rtt()
 
 # 0 Header("0")
 # 1- PoC List
@@ -39,25 +66,25 @@ def create_poc_packet(data):
     packet = "0" + poc_list_to_string
     return packet.encode()
 
-# 0 Header("1")
-# 1-10 PacketID
-# 11-35 Source ip
-# 36-40 Source Port
-def create_check_packet(packet_id, src_ip, src_port):
-    header = "1"
-    packet_string = header + packet_id + src_ip + src_port
-    return packet_string.encode()
 
-# 0 Header("2")
-# 1- RTT Table
-def create_table_packet(rtt_table):
-    header = "2"
-    rtt_table_string = ""
-    for k,v in rtt_table.items():
-        rtt_table_string += "@" + k[0] + "," + k[1] + "," + str(v)
-    packet_string = header + rtt_table_string
-    return packet_string.encode()
+# # 0 Header("1")
+# # 1-10 PacketID
+# # 11-35 Source ip
+# # 36-40 Source Port
+# def create_check_packet(packet_id, src_ip, src_port):
+#     header = "1"
+#     packet_string = header + packet_id + src_ip + src_port
+#     return packet_string.encode()
 
+# # 0 Header("2")
+# # 1- RTT Table
+# def create_table_packet(rtt_table):
+#     header = "2"
+#     rtt_table_string = ""
+#     for k,v in rtt_table.items():
+#         rtt_table_string += "@" + k[0] + "," + k[1] + "," + str(v)
+#     packet_string = header + rtt_table_string
+#     return packet_string.encode()
 def peer_discover():
     global my_poc_address, my_poc_port, poc_list, N, my_name, server
     while len(poc_list) < N:
@@ -66,36 +93,45 @@ def peer_discover():
             packet = create_poc_packet(poc_list)
             server.socket.sendto(packet, (my_poc_address, int(my_poc_port)))
         time.sleep(5)
-    print("Peer discovery done!")
 
-def compute_rtt():
-    global my_name, poc_list, server, sent_packets, my_address, my_port
-    # for every node in poc table, send rtt packet to receive rtt.
-    id_count = 0
 
-    print("poc_list: ", poc_list)
-    for name, value in poc_list.items():
-        if name == my_name: # don't calculate rtt for myself
-            continue
-        is_rtt_calculated = False
-        for rtt_name in rtt_table.keys(): #check if rtt is already calculated
-            if tuple(sorted([name, my_name])) == rtt_name:
-                is_rtt_calculated = True
-                break
-        if not is_rtt_calculated:
-            dest_ip, dest_port = value
+def compute_my_rtt():
+    global poc_list, server, my_name, rtt_matrix
+    while len(rtt_vector) < N - 1:
+        for key, value in poc_list.items():
+            if key != my_name and key not in rtt_vector.keys():
+                packet = create_rtt_packet(key)
+                server.socket.sendto(packet, (value[0], int(value[1])))
+        time.sleep(3)
+    # add my information to rtt matrix
+    # when you have all the information that you need, put it into rtt_matrix
+    # rtt matrix will look like this :
+    # {my_name : @B:0.23@C:0.25@D:0.30}
+    if len(rtt_vector) == N - 1:
+        rtt_vector_string = ""
+        for key, value in rtt_vector.items():
+            rtt_vector_string = rtt_vector_string + "@" + str(key) + ":" + str(value)
+        rtt_matrix[my_name] = rtt_vector_string
 
-            # create packet_id
-            packet_id = str(my_name) + str(id_count)
-            packet_id = packet_id.rjust(10)
+        for key, value in poc_list.items():
+            if key != my_name:
+                packet = create_rtt_vector_packet()
+                server.socket.sendto(packet, (value[0], int(value[1])))
 
-            # create packet and send
-            src_address = my_address.rjust(25)
-            rtt_check_packet = create_check_packet(packet_id, src_address, str(my_port))
-            server.socket.sendto(rtt_check_packet, (dest_ip, int(dest_port)))
 
-            # update current time to sent_packets dictionary
-            sent_packets[packet_id] = time.time()
+# packet has
+# header : packet[0]
+# name : packet[1:11]
+# data : packet[11:]
+def create_rtt_packet(name):
+    global packet_inc_factor, my_name, packet_inc_factor, sent_packets
+    name = name.rjust(10)
+    packet_id = my_name + "@" + str(packet_inc_factor)
+    packet = "1" + name + packet_id
+    sent_packets[packet_id] = time.time()
+    packet_inc_factor += 1
+    return packet.encode()
+
 
 def update_from_poc_data(packet):
     global poc_list, my_poc_address, my_poc_port, my_name, peer_discovery_done, server
@@ -117,72 +153,55 @@ def update_from_poc_data(packet):
         peer_discovery_done = True
 
 
-def rtt_check_receive(self, rtt_check_packet, rtt_socket):
-    global my_name, my_port, sent_packets, poc_list, rtt_table, my_address
-    packet_id = rtt_check_packet[1:11]
-    src_address = rtt_check_packet[11:36].replace(" ", "")
-    src_port = rtt_check_packet[36:41]
-    print("packet: ", rtt_check_packet)
-    print("packetid: ", packet_id)
-    print("src_address: ", src_address)
-    print("src_port: ", src_port)
+def compute_global_rtt():
+    global rtt_matrix, poc_list, my_name, server, rtt_vector
+    if len(rtt_vector.keys()) == N - 1:
+        while len(rtt_matrix) < N:
+            for key, value in poc_list.items():
+                if key != my_name and key not in rtt_matrix.keys():
+                    packet = create_rtt_vector_packet()
+                    server.socket.sendto(packet, (value[0], int(value[1])))
+            time.sleep(3)
 
-    #packet returned! calculate rtt
-    print("Sent packets: ", sent_packets)
-    if packet_id in sent_packets.keys():
-        print("Received the packet I sent! '0'")
-        rtt = time.time() - sent_packets[packet_id]
 
-        #update rtt table
-        node1 = my_name
-        node2 = [k for k,v in poc_list.items() if v == (src_address, int(src_port))]
-        print(node2)
-        rtt_key = tuple(sorted([node1, node2[0]]))
-        rtt_table[rtt_key] = rtt
+def create_rtt_vector_packet():
+    global rtt_matrix
+    rtt_matrix_string = ""
+    # rtt_matrix_string will look like
+    # &A@B:25 &B@A:25
+    for key, value in rtt_matrix.items():
+        rtt_matrix_string = rtt_matrix_string + "&" + str(key) + value
 
-        #let everyone know that rtt table is updated!
-        rtt_table_send(rtt_table)
+    rtt_matrix_string = "2" + rtt_matrix_string
+    return rtt_matrix_string.encode()
 
-    else: #someone sent rtt_check_packet! send it back right away.
-        src_address = my_address.rjust(25)
-        rtt_check_packet = create_check_packet(packet_id, src_address, str(my_port))
-        rtt_socket.sendto(rtt_check_packet, self.client_address)
-        time.sleep(10)
 
-# send my rtt_table to everyone in poc_list
-def rtt_table_send(rtt_table):
-    global poc_list, server
-    rtt_table_packet = create_table_packet(rtt_table)
-    for name, value in poc_list.items():
-        if name != my_name: #except me
-            dest_ip, dest_port = value
-            print("Send this packet: ", rtt_table_packet)
-            server.socket.sendto(rtt_table_packet, (dest_ip, int(dest_port)))
+def find_hub():
+    global rtt_matrix, hub_name
+    # this dictionary will have name as key and sum of rtt as value
+    min_rtt_dict = dict()
+    sum_value = float(0)
+    for name, string in rtt_matrix.items():
+        # String will be in this form '@A:0.00@B:0.01'
+        # after splitting will be something like ['', 'A:0.00', 'B:0.01']
+        split_string = string.split("@")
+        for s_s in split_string:
+            index_of_colon = s_s.find(":")
+            if index_of_colon != -1:
+                sum_value += float(s_s[index_of_colon + 1:])
+        min_rtt_dict[name] = sum_value
 
-# some node sent rtt_table, so update my rtt table
-def rtt_table_receive(rtt_table_packet):
-    global rtt_table
+    hub_name = min(min_rtt_dict, key=min_rtt_dict.get)
 
-    #create new rtt_table from received rtt_table
-    rtt_table_string = rtt_table_packet[1:]
-    received_rtt_table = {}
-    rtt_table_string = rtt_table_string.split('@')
-    rtt_table_string = list(filter(None, rtt_table_string))
-    for string in rtt_table_string:
-        node1, node2, rtt = string.split(',')
-        received_rtt_table[(node1, node2)] = rtt
-
-    #combine rtt_tables
-    new_rtt_table = {**rtt_table, **received_rtt_table}
-    rtt_table = new_rtt_table
-    print("RRRRRRRR ", rtt_table)
 
 if __name__ == "__main__":
     # set variables to input so that it can be accessed throughout the file
-    global poc_list, list_no_response, N, my_name, my_port, server, my_poc_port, my_poc_address, rtt_table, peer_discovery_done, my_address, sent_packets
+    global poc_list, list_no_response, N, my_name, my_port, server, my_poc_port, my_poc_address, rtt_matrix, peer_discovery_done, my_address, sent_packets, rtt_vector, packet_inc_factor, hub_name
     my_name = sys.argv[1]
     my_port = int(sys.argv[2])
 
+    rtt_vector = dict()
+    packet_inc_factor = 0
     # if no PoC (input 3 parameters), set N (number of nodes in system)
     # if node has PoC, append its PoC to list_no_response, which contains port number and ip address
     # of the nodes that PoC did not get response from
@@ -205,7 +224,7 @@ if __name__ == "__main__":
     sent_packets = dict()
 
     #rtt_table is a dictionary that has tuple of (node1 name, node2 name) as key and rtt as value
-    rtt_table = dict()
+    rtt_matrix = dict()
 
     # add myself to poc_list
     my_address = socket.gethostbyname(socket.gethostname())
@@ -218,17 +237,15 @@ if __name__ == "__main__":
     server_thread.start()
 
     peer_discover()
+    print("POC LIST ", poc_list)
+    time.sleep(1)
 
-    compute_rtt()
+    compute_my_rtt()
+    compute_global_rtt()
+    time.sleep(1)
+    print("rtt_matrix: ", rtt_matrix)
 
-    time.sleep(3)
-    print("rtt_table: ", rtt_table)
-    print("done!")
+    find_hub()
+    time.sleep(1)
 
-    server.server_close()
-    server.shutdown()
-    sys.exit(0)
-
-
-
-
+    print("Found a hub: ", hub_name)
