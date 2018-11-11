@@ -13,7 +13,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         recv_from = self.request[1]  # recv_from is the socket that I got data from
 
         header = recv_data[0]
-        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name
+        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name, log_file
         #poc packet is received
         if header == "0":
             if not peer_discovery_done:
@@ -28,13 +28,16 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                 # if I do not have rtt information about this node
                 if name not in rtt_vector.keys():
                     # calculate the rtt and put it in
+                    str_to_write = "Time : " + str(time.time()) + " || Received RTT response from " + str(name) + "\n"
+                    log_file.write(str_to_write)
                     past_time = sent_packets[recv_data[11:]]
                     rtt_vector[name] = time.time() - past_time
             else:
                 # if i did not send this packet, send it back without doing anything
                 # print("Send to ", recv_data)
+                str_to_write = "Time : " + str(time.time()) + "|| Received RTT request. Sending back to where it is from." + "\n"
+                log_file.write(str_to_write)
                 recv_from.sendto(recv_data.encode(), self.client_address)
-
         # if i received rtt matrix, update
         elif header == "2":
             # print("Received rtt matrix ", recv_data)
@@ -66,6 +69,8 @@ def update_rtt_matrix(data):
         name_index = i_n.find("@")
         name = i_n[0:name_index]
         if name not in rtt_matrix.keys():
+            str_to_write = "Time : " + str(time.time()) + " || Received RTT vector from " + str(name) + " | Content is " + str(i_n[name_index:]) + "\n"
+            log_file.write(str_to_write)
             rtt_matrix[name] = i_n[name_index:]
 
     len_after_update = len(rtt_matrix.keys())
@@ -111,6 +116,9 @@ def compute_my_rtt():
     while len(rtt_vector) < N - 1:
         for key, value in poc_list.items():
             if key != my_name and key not in rtt_vector.keys():
+                # calculate the rtt and put it in
+                str_to_write = "Time : " + time.time() + " || Sending RTT request to " + key + "\n"
+                log_file.write(str_to_write)
                 packet = create_rtt_packet(key)
                 server.socket.sendto(packet, (value[0], int(value[1])))
         time.sleep(3)
@@ -123,6 +131,9 @@ def compute_my_rtt():
         for key, value in rtt_vector.items():
             rtt_vector_string = rtt_vector_string + "@" + str(key) + ":" + str(value)
         rtt_matrix[my_name] = rtt_vector_string
+        # calculate the rtt and put it in
+        str_to_write = "Time : " + str(time.time()) + " || Done calculating my RTT vector " + rtt_vector_string + "\n"
+        log_file.write(str_to_write)
 
         for key, value in poc_list.items():
             if key != my_name:
@@ -145,13 +156,15 @@ def create_rtt_packet(name):
 
 
 def update_from_poc_data(packet):
-    global poc_list, my_poc_address, my_poc_port, my_name, peer_discovery_done, server
+    global poc_list, my_poc_address, my_poc_port, my_name, peer_discovery_done, server, log_file
     poc_string = packet[1:]
     individual_node = poc_string.split("@")
     individual_node = list(filter(None, individual_node))
     for i_n in individual_node:
         name, address, port = i_n.split(",")
         if name not in poc_list.keys():
+            str_to_write = "Time : " + str(time.time()) + " || Discovered another star-node named " + str(name) + "\n"
+            log_file.write(str_to_write)
             poc_list[name] = (address, int(port))
 
     # my poc is updated, so tell everyone!
@@ -205,6 +218,8 @@ def find_hub():
         min_rtt_dict[name] = sum_value
 
     hub_name = min(min_rtt_dict, key=min_rtt_dict.get)
+    str_to_write = "Time : " + str(time.time()) + " || This is the hub " + str(hub_name) + "\n"
+    log_file.write(str_to_write)
 
 def display_data():
 
@@ -244,9 +259,44 @@ def broadcast(input):
                 server.socket.sendto(packet, (dest_address, int(dest_port)))
                 break
 
+
 def show_status():
+    global my_name, poc_list, rtt_matrix
+    print("My name is ", my_name)
+
+    for key, value in poc_list.items():
+        if key != my_name:
+            sum_value = 0
+            string = rtt_matrix[key]
+            split_string = string.split("@")
+            for s_s in split_string:
+                index_of_colon = s_s.find(":")
+                if index_of_colon != -1:
+                    sum_value += float(s_s[index_of_colon + 1:])
+            print("The active star_node that I know now is ", key, " and rtt sum is ", sum_value)
 
 def show_log():
+    global log_file
+    # close the log file that you were appending to
+    log_file.close()
+
+    # open a new log file to read
+    log_file = log_file("log.txt")
+    # get one line
+    line = log_file.readline()
+
+    # while there exists a line
+    while line:
+        # print the line
+        print(line)
+        # get the next line
+        line = log_file.readline()
+
+    # close the file that you were reading
+    log_file.close()
+    # open new file to append to
+    log_file = log_file("log.txt", "a+")
+
 
 def run():
     print("Star Node Ready!")
@@ -270,10 +320,11 @@ def run():
 
 if __name__ == "__main__":
     # set variables to input so that it can be accessed throughout the file
-    global poc_list, list_no_response, N, my_name, my_port, server, my_poc_port, my_poc_address, rtt_matrix, peer_discovery_done, my_address, sent_packets, rtt_vector, packet_inc_factor, hub_name
+    global poc_list, list_no_response, N, my_name, my_port, server, my_poc_port, my_poc_address, rtt_matrix, peer_discovery_done, my_address, sent_packets, rtt_vector, packet_inc_factor, hub_name, log_file
     my_name = sys.argv[1]
     my_port = int(sys.argv[2])
 
+    log_file = open("log.txt", "a+")
     rtt_vector = dict()
     packet_inc_factor = 0
     # if no PoC (input 3 parameters), set N (number of nodes in system)
@@ -328,7 +379,6 @@ if __name__ == "__main__":
     print("Found a hub: ", hub_name)
 
     run()
-
 
     server.server_close()
     server.shutdown()
