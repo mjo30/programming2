@@ -1,0 +1,47 @@
+Sample Output : 
+
+python star-node.py A 5000 192.168.31.1 3000 2
+POC LIST  {'A': ('192.168.31.1', 5000), 'B': ('192.168.31.1', 3000)}
+This is my rtt vector  {'B': 0.00026535987854003906}
+rtt_matrix:  {'B': '@A:0.0', 'A': '@B:0.00026535987854003906'}
+Found a hub:  B
+Star Node Ready! Type help to see commands.
+> help
+Command: 1. send message <message>
+         2. send file <file path> (File path length is limited to 30 letters)
+         3. show-status
+         4. show-log
+
+Star Node Ready! Type help to see commands.
+> send message hello
+Message or File Sent!
+
+Star Node Ready! Type help to see commands.
+> send file hello.txt
+Message or File Sent!
+
+Star Node Ready! Type help to see commands.
+> show-status
+My name is  A
+The active star_node that I know now is  B  and rtt sum is  0.0
+Star Node Ready! Type help to see commands.
+> show-log
+Time : 1541977362.6091213 || Discovered another star-node named B
+
+Time : 1541977367.4342227|| Received RTT request. Sending back to where it is from.
+
+Time : 1541977368.6101635 || Sending RTT request to B
+
+Time : 1541977368.6104288 || Received RTT response from B
+
+Time : 1541977370.434287 || Received RTT vector from B | Content is @A:0.0
+
+Time : 1541977371.611038 || Done calculating my RTT vector @B:0.00026535987854003906
+
+Time : 1541977373.6168141 || Calculated hub is B
+
+Time : 1541977387.7754345 || Sending a message or file
+
+Time : 1541977398.9658976 || Sending a message or file
+
+Star Node Ready! Type help to see commands.

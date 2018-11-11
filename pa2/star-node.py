@@ -57,7 +57,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                 display_data(recv_data)
                 str_to_write = "Time : " + str(time.time()) + " || Received data from " + str(source_name) + "\n"
                 log_file.write(str_to_write)
-                print("Star Node Ready! Type help to see commands. \n")
+                print("Star Node Ready! Type help to see commands. \n > ")
 
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
@@ -323,7 +323,7 @@ def show_log():
 
 
 def run():
-    user_input = input("Star Node Ready! Type help to see commands. \n")
+    user_input = input("Star Node Ready! Type help to see commands. \n >")
     if user_input == "help":
         print("Command: 1. send message <message> \n"
               "         2. send file <file path> (File path length is limited to 30 letters) \n"
@@ -333,7 +333,7 @@ def run():
         user_input = user_input.split()
         if user_input[0] == "send":
             broadcast(user_input[1:])
-            print("Message sent! \n")
+            print("Message or File Sent! \n")
         elif user_input[0] == "show-status":
             show_status()
         elif user_input[0] == "show-log":
