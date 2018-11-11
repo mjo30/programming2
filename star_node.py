@@ -1,3 +1,4 @@
+import os
 import socket
 import socketserver
 import sys
@@ -12,7 +13,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         recv_from = self.request[1]  # recv_from is the socket that I got data from
 
         header = recv_data[0]
-        global rtt_matrix, sent_packets, rtt_vector
+        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name
         #poc packet is received
         if header == "0":
             if not peer_discovery_done:
@@ -39,6 +40,15 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
             # print("Received rtt matrix ", recv_data)
             if len(rtt_matrix.keys()) < N:
                 update_rtt_matrix(recv_data)
+
+        elif header == "3":
+            if hub_name == my_name:
+                for node_name, node_value in poc_list.items():
+
+            else:
+                display_data()
+
+
 
 
 # update rtt matrix from data that I received
@@ -121,7 +131,7 @@ def compute_my_rtt():
 
 
 # packet has
-# header : packet[0]
+# header : packet[0] ("1")
 # name : packet[1:11]
 # data : packet[11:]
 def create_rtt_packet(name):
@@ -165,7 +175,8 @@ def compute_global_rtt():
                     server.socket.sendto(packet, (value[0], int(value[1])))
             time.sleep(3)
 
-
+# create rtt_vector_packet
+# header = 2
 def create_rtt_vector_packet():
     global rtt_matrix
     rtt_matrix_string = ""
@@ -194,6 +205,67 @@ def find_hub():
         min_rtt_dict[name] = sum_value
 
     hub_name = min(min_rtt_dict, key=min_rtt_dict.get)
+
+def display_data():
+
+# Create packet with data to broadcast
+# Header: "3"
+# data: could be ASCII message or a file
+def create_data_packet(data):
+    packet = "3" + data
+
+    return packet.encode()
+
+# Broadcast message or file to everyone through hub
+def broadcast(input):
+    global hub_name, my_name, poc_list
+
+    if input[0] == "message":
+        data = input[1]
+    elif input[0] == "file":
+        if not os.path.isfile(input[1]):
+            print("File name ", input[1], " does not exist.")
+            return
+        with open(input[1], 'r') as my_file:
+            data = my_file.read()
+
+    packet = create_data_packet(data)
+
+    #I am the hub
+    if hub_name == my_name:
+        for node_name, node_value in poc_list.items():
+            if my_name != node_name:
+                dest_address, dest_port = node_value
+                server.socket.sendto(packet, (dest_address, int(dest_port)))
+    else:
+        for node_name, node_value in poc_list.items():
+            if node_name == hub_name:
+                dest_address, dest_port = node_value
+                server.socket.sendto(packet, (dest_address, int(dest_port)))
+                break
+
+def show_status():
+
+def show_log():
+
+def run():
+    print("Star Node Ready!")
+    input = input("Command: 1. send message <message>"
+                  "         2. send file <file path>"
+                  "         3. show-status"
+                  "         4. show-log"
+                  ">> ")
+    input = input.split()
+    if input[0] == "send":
+        broadcast(input[1:])
+    elif input[0] == "show-status":
+        show_status()
+    elif input[0] == "show-log":
+        show_log()
+    else:
+        print("Wrong command. Try again.")
+
+
 
 
 if __name__ == "__main__":
@@ -254,6 +326,9 @@ if __name__ == "__main__":
     time.sleep(1)
 
     print("Found a hub: ", hub_name)
+
+    run()
+
 
     server.server_close()
     server.shutdown()
