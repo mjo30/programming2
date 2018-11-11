@@ -45,14 +45,19 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                 update_rtt_matrix(recv_data)
 
         elif header == "3":
-            if hub_name == my_name:
+            source_name = recv_data[1:11].replace(" ","")
+            if hub_name == my_name: #a node sent something to the hub to broadcast. Broadcast to everyone except me(hub) and sender.
                 for node_name, node_value in poc_list.items():
-
-            else:
-                display_data()
-
-
-
+                    if node_name != my_name and node_name != source_name:
+                        dest_address, dest_port = node_value
+                        server.socket.sendto(recv_data.encode(), (dest_address, int(dest_port)))
+                str_to_write = "Time : " + str(time.time()) + " || Forwarding data to every node" + "\n"
+                log_file.write(str_to_write)
+            else: #the hub sent something. display!
+                display_data(recv_data)
+                str_to_write = "Time : " + str(time.time()) + " || Received data from " + str(source_name) + "\n"
+                log_file.write(str_to_write)
+                print("Star Node Ready! Type help to see commands. \n")
 
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
@@ -117,7 +122,7 @@ def compute_my_rtt():
         for key, value in poc_list.items():
             if key != my_name and key not in rtt_vector.keys():
                 # calculate the rtt and put it in
-                str_to_write = "Time : " + time.time() + " || Sending RTT request to " + key + "\n"
+                str_to_write = "Time : " + str(time.time()) + " || Sending RTT request to " + key + "\n"
                 log_file.write(str_to_write)
                 packet = create_rtt_packet(key)
                 server.socket.sendto(packet, (value[0], int(value[1])))
@@ -218,16 +223,42 @@ def find_hub():
         min_rtt_dict[name] = sum_value
 
     hub_name = min(min_rtt_dict, key=min_rtt_dict.get)
-    str_to_write = "Time : " + str(time.time()) + " || This is the hub " + str(hub_name) + "\n"
+    str_to_write = "Time : " + str(time.time()) + " || Calculated hub is " + str(hub_name) + "\n"
     log_file.write(str_to_write)
 
-def display_data():
+#display data that was sent from the hub
+def display_data(packet):
+    source_name = packet[1:11].replace(" ", "")
+    if packet[11] == "0": #received a message
+        message = packet[12:]
+        print("Received a message from ", source_name, ". "
+              "Message: ", message)
+    else: #received a file
+        file_name = packet[12:42]
+        print("Received a file from", source_name, ". "
+              "File name: ", file_name.replace(" ", ""))
 
-# Create packet with data to broadcast
+# Create packet with string or file data to broadcast
 # Header: "3"
-# data: could be ASCII message or a file
-def create_data_packet(data):
-    packet = "3" + data
+# Source name [1:11]
+# booelan isFile [11] message: 0 file: 1
+# If data is message, message [12:]
+# If data is file, file name [12:42], file [42:]
+def create_data_packet(input):
+    global my_name
+    if input[0] == "message":
+        data_string = ""
+        data = input[1:]
+        for d in data:
+            data_string += d + " "
+        packet = "3" + my_name.rjust(10) + "0" + data_string
+    elif input[0] == "file":
+        if not os.path.isfile(input[1]):
+            print("File name ", input[1], " does not exist.")
+            return
+        with open(input[1], 'r') as my_file:
+            data = my_file.read()
+        packet = "3" + my_name.rjust(10) + "1" + input[1].rjust(30) + data
 
     return packet.encode()
 
@@ -235,29 +266,22 @@ def create_data_packet(data):
 def broadcast(input):
     global hub_name, my_name, poc_list
 
-    if input[0] == "message":
-        data = input[1]
-    elif input[0] == "file":
-        if not os.path.isfile(input[1]):
-            print("File name ", input[1], " does not exist.")
-            return
-        with open(input[1], 'r') as my_file:
-            data = my_file.read()
+    packet = create_data_packet(input)
 
-    packet = create_data_packet(data)
-
-    #I am the hub
+    #I am the hub. Broadcast!
     if hub_name == my_name:
         for node_name, node_value in poc_list.items():
             if my_name != node_name:
                 dest_address, dest_port = node_value
                 server.socket.sendto(packet, (dest_address, int(dest_port)))
-    else:
+    else: #Send the data to hub so it can broadcast!
         for node_name, node_value in poc_list.items():
             if node_name == hub_name:
                 dest_address, dest_port = node_value
                 server.socket.sendto(packet, (dest_address, int(dest_port)))
                 break
+    str_to_write = "Time : " + str(time.time()) + " || Sending a message or file" + "\n"
+    log_file.write(str_to_write)
 
 
 def show_status():
@@ -281,7 +305,7 @@ def show_log():
     log_file.close()
 
     # open a new log file to read
-    log_file = log_file("log.txt")
+    log_file = open("log.txt")
     # get one line
     line = log_file.readline()
 
@@ -295,28 +319,25 @@ def show_log():
     # close the file that you were reading
     log_file.close()
     # open new file to append to
-    log_file = log_file("log.txt", "a+")
+    log_file = open("log.txt", "a+")
 
 
 def run():
-    print("Star Node Ready!")
-    input = input("Command: 1. send message <message>"
-                  "         2. send file <file path>"
-                  "         3. show-status"
-                  "         4. show-log"
-                  ">> ")
-    input = input.split()
-    if input[0] == "send":
-        broadcast(input[1:])
-    elif input[0] == "show-status":
-        show_status()
-    elif input[0] == "show-log":
-        show_log()
+    user_input = input("Star Node Ready! Type help to see commands. \n")
+    if user_input == "help":
+        print("Command: 1. send message <message> \n"
+              "         2. send file <file path> (File path length is limited to 30 letters) \n"
+              "         3. show-status \n"
+              "         4. show-log \n")
     else:
-        print("Wrong command. Try again.")
-
-
-
+        user_input = user_input.split()
+        if user_input[0] == "send":
+            broadcast(user_input[1:])
+            print("Message sent! \n")
+        elif user_input[0] == "show-status":
+            show_status()
+        elif user_input[0] == "show-log":
+            show_log()
 
 if __name__ == "__main__":
     # set variables to input so that it can be accessed throughout the file
@@ -324,7 +345,7 @@ if __name__ == "__main__":
     my_name = sys.argv[1]
     my_port = int(sys.argv[2])
 
-    log_file = open("log.txt", "a+")
+    log_file = open("log.txt", "w+")
     rtt_vector = dict()
     packet_inc_factor = 0
     # if no PoC (input 3 parameters), set N (number of nodes in system)
@@ -378,8 +399,5 @@ if __name__ == "__main__":
 
     print("Found a hub: ", hub_name)
 
-    run()
-
-    server.server_close()
-    server.shutdown()
-    sys.exit(0)
+    while True:
+        run()
