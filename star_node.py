@@ -19,8 +19,10 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                 update_from_poc_data(recv_data)
 
         elif header == "1":
+            # print("Received rtt vector, ", recv_data)
             # if packet id is in sent_packets
             if recv_data[11:] in sent_packets.keys():
+                # name is the name that I got this packet from
                 name = recv_data[1:11].replace(" ", "")
                 # if I do not have rtt information about this node
                 if name not in rtt_vector.keys():
@@ -29,17 +31,19 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                     rtt_vector[name] = time.time() - past_time
             else:
                 # if i did not send this packet, send it back without doing anything
+                # print("Send to ", recv_data)
                 recv_from.sendto(recv_data.encode(), self.client_address)
 
         # if i received rtt matrix, update
         elif header == "2":
+            # print("Received rtt matrix ", recv_data)
             if len(rtt_matrix.keys()) < N:
                 update_rtt_matrix(recv_data)
 
 
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
-    global rtt_matrix, poc_list, my_name
+    global rtt_matrix, poc_list, my_name, rtt_vector
     # get initial length of rtt matrix
     init_len = len(rtt_matrix.keys())
     # get everything without header
@@ -49,18 +53,26 @@ def update_rtt_matrix(data):
     # get rid of [""]
     individual_node = individual_node[1:]
     for i_n in individual_node:
-        individual_feature = i_n.split("@")
-        if individual_feature[0] not in rtt_matrix.keys():
-            rtt_matrix[individual_feature[0]] = "@" + individual_feature[1]
+        name_index = i_n.find("@")
+        name = i_n[0:name_index]
+        if name not in rtt_matrix.keys():
+            rtt_matrix[name] = i_n[name_index:]
 
     len_after_update = len(rtt_matrix.keys())
 
     # if length before update and length after update is different, it means that matrix
     # has been updated! send new information to all poc
-    if len_after_update != init_len:
+    # if len(rtt_vector) != N - 1:
+    #     compute_my_rtt()
+
+    if len_after_update != init_len and len(rtt_vector) == N - 1:
         for key, value in poc_list.items():
             if key != my_name:
-                compute_global_rtt()
+                packet = create_rtt_vector_packet()
+                server.socket.sendto(packet, (value[0], int(value[1])))
+
+    # print("This is rtt matrix ", rtt_matrix)
+
 
 # 0 Header("0")
 # 1- PoC List
@@ -85,7 +97,7 @@ def peer_discover():
 
 
 def compute_my_rtt():
-    global poc_list, server, my_name, rtt_matrix
+    global poc_list, server, my_name, rtt_matrix, rtt_vector
     while len(rtt_vector) < N - 1:
         for key, value in poc_list.items():
             if key != my_name and key not in rtt_vector.keys():
@@ -231,6 +243,9 @@ if __name__ == "__main__":
     time.sleep(1)
 
     compute_my_rtt()
+    print("This is my rtt vector ", rtt_vector)
+    time.sleep(1)
+
     compute_global_rtt()
     time.sleep(1)
     print("rtt_matrix: ", rtt_matrix)
@@ -239,3 +254,7 @@ if __name__ == "__main__":
     time.sleep(1)
 
     print("Found a hub: ", hub_name)
+
+    server.server_close()
+    server.shutdown()
+    sys.exit(0)
