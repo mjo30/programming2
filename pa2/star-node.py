@@ -13,7 +13,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         recv_from = self.request[1]  # recv_from is the socket that I got data from
 
         header = recv_data[0]
-        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name, log_file, keep_alive_packets
+        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name, log_file, keep_alive_packets, ack_count, success
         #poc packet is received
         if header == "0":
             if not peer_discovery_done:
@@ -51,10 +51,17 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                     if node_name != my_name and node_name != source_name:
                         dest_address, dest_port = node_value
                         server.socket.sendto(recv_data.encode(), (dest_address, int(dest_port)))
+                if ack_count == N-2:
+                    transmissionSuccess = "1"
+                else:
+                    transmissionSuccess = "0"
+                packet = create_ack_packet(transmissionSuccess)
+                recv_from.sendto(packet, self.client_address)
                 str_to_write = "Time : " + str(time.time()) + " || Forwarding data to every node" + "\n"
                 log_file.write(str_to_write)
             else: #the hub sent something. display!
                 display_data(recv_data)
+                send_ack()
                 str_to_write = "Time : " + str(time.time()) + " || Received data from " + str(source_name) + "\n"
                 log_file.write(str_to_write)
                 print("Star Node Ready! Type help to see commands. \n > ")
@@ -68,6 +75,16 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
             elif recv_data[1:18] in keep_alive_packets.keys():
             # received what i sent!
                 keep_alive_packets[recv_data[1:18]] = 1
+
+        elif header == "5":
+            if hub_name == my_name:
+                ack_count = ack_count + 1
+            else:
+                if recv_data[1] == "0":
+                    success = False
+                else:
+                    success = True
+
 
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
@@ -272,24 +289,47 @@ def create_data_packet(input):
 
     return packet.encode()
 
+# create ack packet to check if every node received the message.
+# header: "5"
+def create_ack_packet(transmissionSuccess):
+    packet = "5" + "transmissionSuccess"
+    return packet.encode()
+
+# send ack packet to the sender so it knows that the message is delivered.
+def send_ack():
+    #send ack packet to the hub
+    packet = create_ack_packet("0")
+    for node_name, node_value in poc_list.items():
+        if node_name == hub_name:
+            dest_address, dest_port = node_value
+            server.socket.sendto(packet, (dest_address, int(dest_port)))
+            break
+
+
 # Broadcast message or file to everyone through hub
 def broadcast(input):
-    global hub_name, my_name, poc_list
+    global hub_name, my_name, poc_list, ack_count, N, success
 
     packet = create_data_packet(input)
 
     #I am the hub. Broadcast!
     if hub_name == my_name:
-        for node_name, node_value in poc_list.items():
-            if my_name != node_name:
-                dest_address, dest_port = node_value
-                server.socket.sendto(packet, (dest_address, int(dest_port)))
+        while ack_count < N-1:
+            for node_name, node_value in poc_list.items():
+                if my_name != node_name:
+                    dest_address, dest_port = node_value
+                    server.socket.sendto(packet, (dest_address, int(dest_port)))
+            time.sleep(10)
+            ack_count = 0
     else: #Send the data to hub so it can broadcast!
-        for node_name, node_value in poc_list.items():
-            if node_name == hub_name:
-                dest_address, dest_port = node_value
-                server.socket.sendto(packet, (dest_address, int(dest_port)))
-                break
+        while not success:
+            for node_name, node_value in poc_list.items():
+                if node_name == hub_name:
+                    dest_address, dest_port = node_value
+                    server.socket.sendto(packet, (dest_address, int(dest_port)))
+                    break
+            time.sleep(10)
+            success = False
     str_to_write = "Time : " + str(time.time()) + " || Sending a message or file" + "\n"
     log_file.write(str_to_write)
 
@@ -387,14 +427,14 @@ def check_offline(packet):
             # get the time difference between current time and sent time
             time_difference = datetime.datetime.strptime(now_time, time_format) - datetime.datetime.strptime(sent_time, time_format)
             # if time difference is longer than 10 seconds, we consider it inactive
-            if time_difference > datetime.timedelta(seconds=10):
+            if time_difference > datetime.timedelta(seconds=20):
                 offline_name = packet[7:18].replace(" ", "")
                 # remove offline node from poc list
                 if offline_name in poc_list.keys():
                     poc_list.pop(offline_name)
+                    N -= 1
                     # if the node that went offline is hub, recalculate rtt
                     if offline_name == hub_name:
-                        N -= 1
                         rtt_matrix = dict()
                         rtt_vector = dict()
 
@@ -412,7 +452,7 @@ def check_offline(packet):
                         time.sleep(1)
 
                         print("Found a hub: ", hub_name)
-                        
+
                         run()
 
 
@@ -434,7 +474,7 @@ if __name__ == "__main__":
     # set variables to input so that it can be accessed throughout the file
     global poc_list, list_no_response, N, my_name, my_port, server, my_poc_port, my_poc_address, rtt_matrix
     global peer_discovery_done, my_address, sent_packets, rtt_vector, packet_inc_factor, hub_name, log_file
-    global keep_alive_packets
+    global keep_alive_packets, ack_count, success
 
     my_name = sys.argv[1]
     my_port = int(sys.argv[2])
@@ -442,6 +482,8 @@ if __name__ == "__main__":
     log_file = open("log.txt", "w+")
     rtt_vector = dict()
     packet_inc_factor = 0
+    ack_count = 0
+    success = False
     # if no PoC (input 3 parameters), set N (number of nodes in system)
     # if node has PoC, append its PoC to list_no_response, which contains port number and ip address
     # of the nodes that PoC did not get response from
