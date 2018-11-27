@@ -47,16 +47,21 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         elif header == "3":
             source_name = recv_data[1:11].replace(" ","")
             if hub_name == my_name: #a node sent something to the hub to broadcast. Broadcast to everyone except me(hub) and sender.
+                ack_count = 0
                 for node_name, node_value in poc_list.items():
                     if node_name != my_name and node_name != source_name:
                         dest_address, dest_port = node_value
                         server.socket.sendto(recv_data.encode(), (dest_address, int(dest_port)))
+                print("hub ack_count: ", ack_count)
                 if ack_count == N-2:
                     transmissionSuccess = "1"
+                    print("yay it worked!")
                 else:
                     transmissionSuccess = "0"
+                    print("not worked")
                 packet = create_ack_packet(transmissionSuccess)
                 recv_from.sendto(packet, self.client_address)
+
                 str_to_write = "Time : " + str(time.time()) + " || Forwarding data to every node" + "\n"
                 log_file.write(str_to_write)
             else: #the hub sent something. display!
@@ -80,11 +85,11 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
             if hub_name == my_name:
                 ack_count = ack_count + 1
             else:
+                print("recv_data[1]: ", str(recv_data))
                 if recv_data[1] == "0":
                     success = False
                 else:
                     success = True
-
 
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
@@ -292,7 +297,7 @@ def create_data_packet(input):
 # create ack packet to check if every node received the message.
 # header: "5"
 def create_ack_packet(transmissionSuccess):
-    packet = "5" + "transmissionSuccess"
+    packet = "5" + transmissionSuccess
     return packet.encode()
 
 # send ack packet to the sender so it knows that the message is delivered.
@@ -315,21 +320,30 @@ def broadcast(input):
     #I am the hub. Broadcast!
     if hub_name == my_name:
         while ack_count < N-1:
+            print("sending...")
+            ack_count = 0
             for node_name, node_value in poc_list.items():
                 if my_name != node_name:
                     dest_address, dest_port = node_value
                     server.socket.sendto(packet, (dest_address, int(dest_port)))
-            time.sleep(10)
-            ack_count = 0
+            start = time.time()
+            while time.time()-start < 10:
+                if ack_count >= N-1:
+                    break
+        ack_count = 0
     else: #Send the data to hub so it can broadcast!
         while not success:
+            print("sending...")
             for node_name, node_value in poc_list.items():
                 if node_name == hub_name:
                     dest_address, dest_port = node_value
                     server.socket.sendto(packet, (dest_address, int(dest_port)))
                     break
-            time.sleep(10)
-            success = False
+            start = time.time()
+            while time.time() - start < 10:
+                if success:
+                    break
+        success = False
     str_to_write = "Time : " + str(time.time()) + " || Sending a message or file" + "\n"
     log_file.write(str_to_write)
 
@@ -534,10 +548,10 @@ if __name__ == "__main__":
     time.sleep(1)
 
     print("Found a hub: ", hub_name)
-
-    keep_alive_packets = dict()
-
-    keep_alive()
+    #
+    # keep_alive_packets = dict()
+    #
+    # keep_alive()
 
 
     while True:
