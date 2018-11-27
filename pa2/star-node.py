@@ -65,6 +65,9 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
             if source_name != my_name:
                 recv_from.sendto(recv_data.encode(), self.client_address)
 
+            elif recv_data[1:18] in keep_alive_packets.keys():
+            # received what i sent!
+                keep_alive_packets[recv_data[1:18]] = 1
 
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
@@ -355,7 +358,7 @@ def create_keep_alive_packet(name):
     global my_name
     now = datetime.datetime.now()
     packet = "4" + str(now.hour) + str(now.minute) + str(now.second) + name.rjust(10) + my_name.rjust(10)
-    return packet.encode()
+    return packet
 
 
 def churn(server, key, value):
@@ -365,27 +368,52 @@ def churn(server, key, value):
         # The id of keep_alive_packets dictionary will be time + destination name (padded to 10)
         # initialize the value as 0
         keep_alive_packets[packet[1:18]] = 0
-        server.socket.sendto(packet, (value[0], int(value[1])))
+        server.socket.sendto(packet.encode(), (value[0], int(value[1])))
 
         threading.Thread(target=check_offline, args=(packet,)).start()
         time.sleep(5)
 
 
 def check_offline(packet):
-    global keep_alive_packets
+    global keep_alive_packets, hub_name, N, rtt_matrix, rtt_vector
     while True:
         # get sent time from the sent packet dictionary (keep_alive_packets)
-        sent_time = packet[1:3] + ":" + packet[3:5] + ":" + packet[5:7]
-        # get current time
-        now = datetime.datetime.now()
-        now_time = str(now.hour) + ":" + str(now.minute) + ":" + str(now.second)
-        time_format = "%H:%M:%S"
-        # get the time difference between current time and sent time
-        time_difference = datetime.datetime.strptime(now_time, time_format) - datetime.datetime.strptime(sent_time, time_format)
-        # if time difference is longer than 10 seconds, we consider it inactive
-        if time_difference > datetime.timedelta(seconds=10):
-            print("OFFLINE")
-            poc_list.pop(packet[7:18].replace(" ", ""))
+        if packet[1:18] in keep_alive_packets and keep_alive_packets[packet[1:18]] == 0:
+            sent_time = packet[1:3].replace(" ", "").rjust(2, "0") + ":" + packet[3:5].replace(" ", "").rjust(2, "0") + ":" + packet[5:7].replace(" ", "").rjust(2, "0")
+            # get current time
+            now = datetime.datetime.now()
+            now_time = str(now.hour).replace(" ", "").rjust(2, "0") + ":" + str(now.minute).replace(" ", "").rjust(2, "0") + ":" + str(now.second).replace(" ", "").rjust(2, "0")
+            time_format = "%H:%M:%S"
+            # get the time difference between current time and sent time
+            time_difference = datetime.datetime.strptime(now_time, time_format) - datetime.datetime.strptime(sent_time, time_format)
+            # if time difference is longer than 10 seconds, we consider it inactive
+            if time_difference > datetime.timedelta(seconds=10):
+                offline_name = packet[7:18].replace(" ", "")
+                # remove offline node from poc list
+                if offline_name in poc_list.keys():
+                    poc_list.pop(offline_name)
+                    # if the node that went offline is hub, recalculate rtt
+                    if offline_name == hub_name:
+                        N -= 1
+                        rtt_matrix = dict()
+                        rtt_vector = dict()
+
+                        print("Finding new hub...")
+
+                        compute_my_rtt()
+                        print("This is my rtt vector ", rtt_vector)
+                        time.sleep(1)
+
+                        compute_global_rtt()
+                        time.sleep(1)
+                        print("rtt_matrix: ", rtt_matrix)
+
+                        find_hub()
+                        time.sleep(1)
+
+                        print("Found a hub: ", hub_name)
+                        
+                        run()
 
 
 # sent_time = recv_data[1:3] + ":" + recv_data[3:5] + ":" + recv_data[5:7]# will have hhmmss
@@ -394,7 +422,6 @@ def check_offline(packet):
 # time_format = "%H:%M:%S"
 # time_difference = datetime.datetime.strptime(now_time, time_format) - datetime.datetime.strptime(sent_time, time_format)
 # if time_difference > datetime.timedelta(seconds=10):
-
 
 def keep_alive():
     global poc_list, server, my_address, my_port
