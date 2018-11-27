@@ -3,7 +3,7 @@ import socket
 import socketserver
 import sys
 import threading
-
+import datetime
 import time
 
 
@@ -13,7 +13,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         recv_from = self.request[1]  # recv_from is the socket that I got data from
 
         header = recv_data[0]
-        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name, log_file
+        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name, log_file, keep_alive_packets
         #poc packet is received
         if header == "0":
             if not peer_discovery_done:
@@ -58,6 +58,13 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                 str_to_write = "Time : " + str(time.time()) + " || Received data from " + str(source_name) + "\n"
                 log_file.write(str_to_write)
                 print("Star Node Ready! Type help to see commands. \n > ")
+
+        elif header == "4":
+            source_name = recv_data[18: 29].replace(" ", "")
+            # this is not what I sent, I send this back!
+            if source_name != my_name:
+                recv_from.sendto(recv_data.encode(), self.client_address)
+
 
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
@@ -241,7 +248,7 @@ def display_data(packet):
 # Create packet with string or file data to broadcast
 # Header: "3"
 # Source name [1:11]
-# booelan isFile [11] message: 0 file: 1
+# boolean isFile [11] message: 0 file: 1
 # If data is message, message [12:]
 # If data is file, file name [12:42], file [42:]
 def create_data_packet(input):
@@ -339,9 +346,69 @@ def run():
         elif user_input[0] == "show-log":
             show_log()
 
+
+# Header = "4" / packet[0]
+# Time = "hhmmss" / packet[1:7]
+# Destination name = length padded to 10 / packet[7:18]
+# Source name = length padded to 10 / packet[18:29]
+def create_keep_alive_packet(name):
+    global my_name
+    now = datetime.datetime.now()
+    packet = "4" + str(now.hour) + str(now.minute) + str(now.second) + name.rjust(10) + my_name.rjust(10)
+    return packet.encode()
+
+
+def churn(server, key, value):
+    global poc_list, my_name, keep_alive_packets
+    while True:
+        packet = create_keep_alive_packet(key)
+        # The id of keep_alive_packets dictionary will be time + destination name (padded to 10)
+        # initialize the value as 0
+        keep_alive_packets[packet[1:18]] = 0
+        server.socket.sendto(packet, (value[0], int(value[1])))
+
+        threading.Thread(target=check_offline, args=(packet,)).start()
+        time.sleep(5)
+
+
+def check_offline(packet):
+    global keep_alive_packets
+    while True:
+        # get sent time from the sent packet dictionary (keep_alive_packets)
+        sent_time = packet[1:3] + ":" + packet[3:5] + ":" + packet[5:7]
+        # get current time
+        now = datetime.datetime.now()
+        now_time = str(now.hour) + ":" + str(now.minute) + ":" + str(now.second)
+        time_format = "%H:%M:%S"
+        # get the time difference between current time and sent time
+        time_difference = datetime.datetime.strptime(now_time, time_format) - datetime.datetime.strptime(sent_time, time_format)
+        # if time difference is longer than 10 seconds, we consider it inactive
+        if time_difference > datetime.timedelta(seconds=10):
+            print("OFFLINE")
+            poc_list.pop(packet[7:18].replace(" ", ""))
+
+
+# sent_time = recv_data[1:3] + ":" + recv_data[3:5] + ":" + recv_data[5:7]# will have hhmmss
+# now = datetime.datetime.now()
+# now_time = str(now.hour) + ":" + str(now.minute) + ":" + str(now.second)
+# time_format = "%H:%M:%S"
+# time_difference = datetime.datetime.strptime(now_time, time_format) - datetime.datetime.strptime(sent_time, time_format)
+# if time_difference > datetime.timedelta(seconds=10):
+
+
+def keep_alive():
+    global poc_list, server, my_address, my_port
+    for key, value in poc_list.items():
+        keep_alive_thread = threading.Thread(target=churn, args=(server, key, value))
+        keep_alive_thread.start()
+
+
 if __name__ == "__main__":
     # set variables to input so that it can be accessed throughout the file
-    global poc_list, list_no_response, N, my_name, my_port, server, my_poc_port, my_poc_address, rtt_matrix, peer_discovery_done, my_address, sent_packets, rtt_vector, packet_inc_factor, hub_name, log_file
+    global poc_list, list_no_response, N, my_name, my_port, server, my_poc_port, my_poc_address, rtt_matrix
+    global peer_discovery_done, my_address, sent_packets, rtt_vector, packet_inc_factor, hub_name, log_file
+    global keep_alive_packets
+
     my_name = sys.argv[1]
     my_port = int(sys.argv[2])
 
@@ -379,7 +446,7 @@ if __name__ == "__main__":
     # create the server using socketserver module
     server = socketserver.UDPServer((my_address, my_port), MyUDPHandler)
     server_thread = threading.Thread(target=server.serve_forever)
-    server_thread.daemon = False
+    server_thread.daemon = True
     server_thread.start()
 
     peer_discover()
@@ -398,6 +465,11 @@ if __name__ == "__main__":
     time.sleep(1)
 
     print("Found a hub: ", hub_name)
+
+    keep_alive_packets = dict()
+
+    keep_alive()
+
 
     while True:
         run()
