@@ -5,6 +5,7 @@ import sys
 import threading
 import datetime
 import time
+import uuid
 
 
 class MyUDPHandler(socketserver.BaseRequestHandler):
@@ -13,10 +14,16 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
         recv_from = self.request[1]  # recv_from is the socket that I got data from
 
         header = recv_data[0]
-        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name, log_file, keep_alive_packets, ack_count, success
+        global rtt_matrix, sent_packets, rtt_vector, hub_name, my_name, log_file, keep_alive_packets, ack_count, success, N
         #poc packet is received
         if header == "0":
-            if not peer_discovery_done:
+            # poc_string = recv_data[1:]
+            # individual_node = poc_string.split("@")
+            # individual_node = list(filter(None, individual_node))
+            # count = 0
+            # for i_n in individual_node:
+            #     count += 1
+            if len(poc_list) != N:
                 update_from_poc_data(recv_data)
 
         elif header == "1":
@@ -55,7 +62,6 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                 print("hub ack_count: ", ack_count)
                 if ack_count == N-2:
                     transmissionSuccess = "1"
-                    print("yay it worked!")
                 else:
                     transmissionSuccess = "0"
                 packet = create_ack_packet(transmissionSuccess)
@@ -72,14 +78,29 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                 print("Star Node Ready! Type help to see commands. \n > ")
 
         elif header == "4":
-            source_name = recv_data[18: 29].replace(" ", "")
-            # this is not what I sent, I send this back!
-            if source_name != my_name:
-                recv_from.sendto(recv_data.encode(), self.client_address)
+            travel_time = int(recv_data[37]) - 1
+            to_send = recv_data[0:37] + "1" + recv_data[38:]
+            if travel_time > 0:
+                recv_from.sendto(to_send.encode(), self.client_address)
+            elif travel_time == 0:
+                alive_node, made_time = keep_alive_packets.pop(recv_data[1:37])
+                new_keep_alive_dict = dict()
+                for key, value in keep_alive_packets.items():
+                    if value[0] == alive_node and value[1] < made_time:
+                        pass
+                    else:
+                        new_keep_alive_dict[key] = value
 
-            elif recv_data[1:18] in keep_alive_packets.keys():
-            # received what i sent!
-                keep_alive_packets[recv_data[1:18]] = 1
+                keep_alive_packets = new_keep_alive_dict
+                # keep_alive_packets = dict()
+                # print("KA PACKET ", keep_alive_packets)
+            # source_name = recv_data[18: 29].replace(" ", "")
+            # # this is not what I sent, I send this back!
+            # if source_name != my_name:
+            #     recv_from.sendto(recv_data.encode(), self.client_address)
+            # elif recv_data[1:18] in keep_alive_packets.keys():
+            # # received what i sent!
+            #     keep_alive_packets[recv_data[1:18]] = 1
 
         elif header == "5":
             if hub_name == my_name:
@@ -89,6 +110,7 @@ class MyUDPHandler(socketserver.BaseRequestHandler):
                     success = False
                 else:
                     success = True
+
 
 # update rtt matrix from data that I received
 def update_rtt_matrix(data):
@@ -192,7 +214,7 @@ def create_rtt_packet(name):
 
 
 def update_from_poc_data(packet):
-    global poc_list, my_poc_address, my_poc_port, my_name, peer_discovery_done, server, log_file
+    global poc_list, my_poc_address, my_poc_port, my_name, server, log_file
     poc_string = packet[1:]
     individual_node = poc_string.split("@")
     individual_node = list(filter(None, individual_node))
@@ -204,13 +226,12 @@ def update_from_poc_data(packet):
             poc_list[name] = (address, int(port))
 
     # my poc is updated, so tell everyone!
+    time.sleep(0.5)
     for node_name, node_value in poc_list.items():
         if node_name != my_name:
             dest_address, dest_port = node_value
             packet = create_poc_packet(poc_list)
             server.socket.sendto(packet, (dest_address, int(dest_port)))
-    if len(poc_list) == N:
-        peer_discovery_done = True
 
 
 # send my rtt matrix to my PoC if rtt_matrix is not complete
@@ -405,69 +426,106 @@ def run():
 
 
 # Header = "4" / packet[0]
-# Time = "hhmmss" / packet[1:7]
-# Destination name = length padded to 10 / packet[7:18]
-# Source name = length padded to 10 / packet[18:29]
-def create_keep_alive_packet(name):
-    global my_name
-    now = datetime.datetime.now()
-    packet = "4" + str(now.hour) + str(now.minute) + str(now.second) + name.rjust(10) + my_name.rjust(10)
+# ID = uuid of length 36 / packet[1:37]
+# sent time = 2 packet[37]
+# time = packet[37:]
+def create_keep_alive_packet(id, created_time):
+    packet = "4" + str(id) + "2" + str(created_time)
     return packet
 
 
 def churn(server, key, value):
     global poc_list, my_name, keep_alive_packets
     while True:
-        packet = create_keep_alive_packet(key)
+        id = uuid.uuid4()
+        created_time = time.time()
+        packet = create_keep_alive_packet(id, created_time)
         # The id of keep_alive_packets dictionary will be time + destination name (padded to 10)
         # initialize the value as 0
-        keep_alive_packets[packet[1:18]] = 0
+        keep_alive_packets[str(id)] = (key, created_time)
         server.socket.sendto(packet.encode(), (value[0], int(value[1])))
+        # print("Send ", packet)
 
-        threading.Thread(target=check_offline, args=(packet,)).start()
-        time.sleep(5)
+        threading.Thread(target=check_offline, args=(server, created_time, key, value, str(id),)).start()
+        time.sleep(0.5)
 
 
-def check_offline(packet):
+def check_offline(server, created_time, key, value, id):
     global keep_alive_packets, hub_name, N, rtt_matrix, rtt_vector
     while True:
-        # get sent time from the sent packet dictionary (keep_alive_packets)
-        if packet[1:18] in keep_alive_packets and keep_alive_packets[packet[1:18]] == 0:
-            sent_time = packet[1:3].replace(" ", "").rjust(2, "0") + ":" + packet[3:5].replace(" ", "").rjust(2, "0") + ":" + packet[5:7].replace(" ", "").rjust(2, "0")
-            # get current time
-            now = datetime.datetime.now()
-            now_time = str(now.hour).replace(" ", "").rjust(2, "0") + ":" + str(now.minute).replace(" ", "").rjust(2, "0") + ":" + str(now.second).replace(" ", "").rjust(2, "0")
-            time_format = "%H:%M:%S"
-            # get the time difference between current time and sent time
-            time_difference = datetime.datetime.strptime(now_time, time_format) - datetime.datetime.strptime(sent_time, time_format)
-            # if time difference is longer than 10 seconds, we consider it inactive
-            if time_difference > datetime.timedelta(seconds=20):
-                offline_name = packet[7:18].replace(" ", "")
-                # remove offline node from poc list
-                if offline_name in poc_list.keys():
-                    poc_list.pop(offline_name)
-                    N -= 1
-                    # if the node that went offline is hub, recalculate rtt
-                    if offline_name == hub_name:
+        # print("===============", keep_alive_packets)
+        # print("###### ", id)
+        if id in keep_alive_packets.keys():
+            now = time.time()
+            # print("KEY ", key)
+            if now - created_time > 10:
+                # print("TIME DIFFERENCE ", now - created_time)
+                if key in poc_list.keys():
+                    # N -= 1
+                    poc_list.pop(key)
+                    rtt_matrix.pop(key)
+                    # print("FOUND OFFLINE NODE")
+                    if key == hub_name:
                         rtt_matrix = dict()
                         rtt_vector = dict()
 
-                        print("Finding new hub...")
+                        # print("Finding new hub...")
 
                         compute_my_rtt()
-                        print("This is my rtt vector ", rtt_vector)
+                        # print("This is my rtt vector ", rtt_vector)
                         time.sleep(1)
 
                         compute_global_rtt()
                         time.sleep(1)
-                        print("rtt_matrix: ", rtt_matrix)
+                        # print("rtt_matrix: ", rtt_matrix)
 
                         find_hub()
                         time.sleep(1)
 
-                        print("Found a hub: ", hub_name)
-
-                        run()
+                        # print("Found a hub: ", hub_name)
+                    break
+                else:
+                    break
+        else:
+            break
+        # get sent time from the sent packet dictionary (keep_alive_packets)
+        # if packet[1:18] in keep_alive_packets and keep_alive_packets[packet[1:18]] == 0:
+        #     sent_time = packet[1:3].replace(" ", "").rjust(2, "0") + ":" + packet[3:5].replace(" ", "").rjust(2, "0") + ":" + packet[5:7].replace(" ", "").rjust(2, "0")
+        #     # get current time
+        #     now = datetime.datetime.now()
+        #     now_time = str(now.hour).replace(" ", "").rjust(2, "0") + ":" + str(now.minute).replace(" ", "").rjust(2, "0") + ":" + str(now.second).replace(" ", "").rjust(2, "0")
+        #     time_format = "%H:%M:%S"
+        #     # get the time difference between current time and sent time
+        #     time_difference = datetime.datetime.strptime(now_time, time_format) - datetime.datetime.strptime(sent_time, time_format)
+        #     # if time difference is longer than 10 seconds, we consider it inactive
+        #     if time_difference > datetime.timedelta(seconds=10):
+        #         offline_name = packet[7:18].replace(" ", "")
+        #         # remove offline node from poc list
+        #         if offline_name in poc_list.keys():
+        #             poc_list.pop(offline_name)
+        #             N -= 1
+        #             time.sleep(0.5)
+        #             # if the node that went offline is hub, recalculate rtt
+        #             if offline_name == hub_name:
+        #                 rtt_matrix = dict()
+        #                 rtt_vector = dict()
+        #
+        #                 print("Finding new hub...")
+        #
+        #                 compute_my_rtt()
+        #                 print("This is my rtt vector ", rtt_vector)
+        #                 time.sleep(1)
+        #
+        #                 compute_global_rtt()
+        #                 time.sleep(1)
+        #                 print("rtt_matrix: ", rtt_matrix)
+        #
+        #                 find_hub()
+        #                 time.sleep(1)
+        #
+        #                 print("Found a hub: ", hub_name)
+        #
+        # break
 
 
 # sent_time = recv_data[1:3] + ":" + recv_data[3:5] + ":" + recv_data[5:7]# will have hhmmss
@@ -548,10 +606,10 @@ if __name__ == "__main__":
     time.sleep(1)
 
     print("Found a hub: ", hub_name)
-    #
-    # keep_alive_packets = dict()
-    #
-    # keep_alive()
+
+    keep_alive_packets = dict()
+
+    keep_alive()
 
 
     while True:
