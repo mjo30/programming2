@@ -458,13 +458,14 @@ def check_offline(server, created_time, key, value, id):
         if id in keep_alive_packets.keys():
             now = time.time()
             # print("KEY ", key)
-            if now - created_time > 10:
+            if now - created_time > 15:
                 # print("TIME DIFFERENCE ", now - created_time)
                 if key in poc_list.keys():
                     # N -= 1
                     poc_list.pop(key)
-                    rtt_matrix.pop(key)
-                    # print("FOUND OFFLINE NODE")
+                    if key in rtt_matrix.keys():
+                        rtt_matrix.pop(key)
+                    print("FOUND OFFLINE NODE ", key)
                     if key == hub_name:
                         rtt_matrix = dict()
                         rtt_vector = dict()
